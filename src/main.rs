@@ -1,5 +1,6 @@
 #[repr(C)]
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 enum Register {
     R0 = 0,
     R1,
@@ -81,6 +82,10 @@ fn get_flag(r: u16) -> Flag {
     else { Flag::POSITIVE }
 }
 
+fn update_flag(registers: &mut [u16; Register::COUNT as usize], r: u16) {
+    registers[Register::COND as usize] = get_flag(registers[r as usize]) as u16;
+}
+
 fn main() {
     let mut memory = [0u16; 1 << 16 - 1];
     let mut registers = [0u16; Register::COUNT as usize];
@@ -104,22 +109,94 @@ fn main() {
                     registers[r0 as usize] = registers[r1 as usize] + registers[r2 as usize];
                 }
 
-                registers[Register::COND as usize] = get_flag(registers[r0 as usize]) as u16;
+                update_flag(&mut registers, r0);
             },
-            Opcode::AND => {},
-            Opcode::NOT => {},
-            Opcode::BRANCH => {},
-            Opcode::JUMP => {},
-            Opcode::JUMPR => {},
-            Opcode::LOAD => {},
-            Opcode::LOADI => {},
-            Opcode::LOADR => {},
-            Opcode::LEA => {},
-            Opcode::STORE => {},
-            Opcode::STOREI => {},
-            Opcode::STORER => {},
+            Opcode::AND => {
+                let r0 = (instr >> 9) & 0x7;
+                let r1 = (instr >> 6) & 0x7;
+                let imm_flag = (instr >> 5) & 0x1;
+
+                if imm_flag == 1 {
+                    let imm5 = sign_extend(instr & 0x1F, 5);
+                    registers[r0 as usize] = registers[r1 as usize] & imm5;
+                } else {
+                    let r2 = instr & 0x7;
+                    registers[r0 as usize] = registers[r1 as usize] & registers[r2 as usize];
+                }
+
+                update_flag(&mut registers, r0);
+            },
+            Opcode::NOT => {
+                let r0 = (instr >> 9) & 0x7;
+                let r1 = (instr >> 6) & 0x7;
+
+                registers[r0 as usize] = !registers[r1 as usize];
+
+                update_flag(&mut registers, r0);
+            },
+            Opcode::BRANCH => {
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                if ((instr >> 9) & registers[Register::COND as usize] & 0x7) != 0 {
+                    registers[Register::PC as usize] += pc_offset;
+                }
+            },
+            Opcode::JUMP => {
+                let r0 = (instr >> 6) & 0x7;
+                registers[Register::PC as usize] = registers[r0 as usize];
+            },
+            Opcode::JUMPR => {
+                registers[Register::R7 as usize] = registers[Register::PC as usize];
+                let pc_offset = sign_extend(instr & 0x7FF, 11);
+                if ((instr >> 11) & 1) != 0 {
+                    registers[Register::PC as usize] += pc_offset;
+                } else {
+                    let r0 = (instr >> 6) & 0x7;
+                    registers[Register::PC as usize] = registers[r0 as usize];
+                }
+            },
+            Opcode::LOAD => {
+                let r0 = (instr >> 9) & 0x7;
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                registers[r0 as usize] = memory[registers[Register::PC as usize] as usize + pc_offset as usize];
+                update_flag(&mut registers, r0);
+            },
+            Opcode::LOADI => {
+                let r0 = (instr >> 9) & 0x7;
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                registers[r0 as usize] = memory[memory[registers[Register::PC as usize] as usize + pc_offset as usize] as usize];
+                update_flag(&mut registers, r0);
+            },
+            Opcode::LOADR => {
+                let r0 = (instr >> 9) & 0x7;
+                let base = (instr >> 6) & 0x7;
+                let offset = sign_extend(instr & 0x3F, 6);
+                registers[r0 as usize] = memory[registers[base as usize] as usize + offset as usize];
+                update_flag(&mut registers, r0);
+            },
+            Opcode::LEA => {
+                let r0 = (instr >> 9) & 0x7;
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                registers[r0 as usize] = registers[Register::PC as usize] + pc_offset;
+                update_flag(&mut registers, r0);
+            },
+            Opcode::STORE => {
+                let r0 = (instr >> 9) & 0x7;
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                memory[registers[Register::PC as usize] as usize + pc_offset as usize] = registers[r0 as usize];
+            },
+            Opcode::STOREI => {
+                let r0 = (instr >> 9) & 0x7;
+                let pc_offset = sign_extend(instr & 0x1FF, 9);
+                memory[memory[registers[Register::PC as usize] as usize + pc_offset as usize] as usize] = registers[r0 as usize];
+            },
+            Opcode::STORER => {
+                let r0 = (instr >> 9) & 0x7;
+                let base = (instr >> 6) & 0x7;
+                let offset = sign_extend(instr & 0x3F, 6);
+                memory[registers[base as usize] as usize + offset as usize] = registers[r0 as usize];
+            },
             Opcode::TRAP => {},
-            Opcode::RTI | Opcode::RES => {},
+            Opcode::RTI | Opcode::RES => { panic!("Illegal Opcode {}", op) },
         }
     }
     println!("Hello, world!");
