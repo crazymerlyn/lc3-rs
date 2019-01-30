@@ -1,3 +1,5 @@
+use std::io::Read;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -66,6 +68,31 @@ enum Flag {
     POSITIVE = 1 << 0,
     ZERO = 1 << 1,
     NEGATIVE = 1 << 2,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+enum Trap {
+    GETC = 0x20,    // get character from keyboard
+    OUT = 0x21,     // output a character
+    PUTS = 0x22,    // output a word string
+    IN = 0x23,      // input a string
+    PUTSP = 0x24,   // output a byte string
+    HALT = 0x25,    // halt the program
+}
+
+impl From<u16> for Trap {
+    fn from(trap: u16) -> Self {
+        match trap {
+            0x20 => Trap::GETC,
+            0x21 => Trap::OUT,
+            0x22 => Trap::PUTS,
+            0x23 => Trap::IN,
+            0x24 => Trap::PUTSP,
+            0x25 => Trap::HALT,
+            _ => panic!("Invalid trap code: {}", trap),
+        }
+    }
 }
 
 fn sign_extend(x: u16, bit_count: u8) -> u16 {
@@ -195,7 +222,42 @@ fn main() {
                 let offset = sign_extend(instr & 0x3F, 6);
                 memory[registers[base as usize] as usize + offset as usize] = registers[r0 as usize];
             },
-            Opcode::TRAP => {},
+            Opcode::TRAP => {
+                match (instr & 0xFF).into() {
+                    Trap::GETC => {
+                        registers[Register::R0 as usize] = std::io::stdin().bytes().next().unwrap().unwrap() as u16;
+                    },
+                    Trap::OUT => {
+                        print!("{}", registers[Register::R0 as usize] as u8 as char);
+                    },
+                    Trap::PUTS => {
+                        let mut i = registers[Register::R0 as usize] as usize;
+                        while memory[i] != 0 {
+                            print!("{}", memory[i] as u8 as char);
+                            i += 1;
+                        }
+                    },
+                    Trap::IN => {
+                        print!("Enter a character: ");
+                        registers[Register::R0 as usize] = std::io::stdin().bytes().next().unwrap().unwrap() as u16;
+                    },
+                    Trap::PUTSP => {
+                        let mut i = registers[Register::R0 as usize] as usize;
+                        while memory[i] != 0 {
+                            print!("{}", (memory[i] & 0xFF) as u8 as char);
+                            let ch = (memory[i] >> 8) as u8;
+                            if ch != 0 {
+                                print!("{}", ch as char);
+                            }
+                            i += 1;
+                        }
+                    },
+                    Trap::HALT => {
+                        println!("HALT");
+                        running = false;
+                    },
+                }
+            },
             Opcode::RTI | Opcode::RES => { panic!("Illegal Opcode {}", op) },
         }
     }
